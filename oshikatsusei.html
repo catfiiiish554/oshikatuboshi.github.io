@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>わたしの星系</title>
+
+<!-- ===== 見た目の設定（CSS） ===== -->
+<style>
+  body {
+    margin: 0;
+    font-family: sans-serif;
+    background: #f6f4ef;
+    color: #333;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 16px 48px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 20px;
+    margin: 20px 0 12px;
+  }
+  [hidden] { display: none; }
+
+  /* ---------- 画面上部の「いまの選択」バー ----------
+     position: sticky で、スクロールしても画面の上に張りついたままになる */
+  #status-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0;
+    background: #f6f4ef;
+    border-bottom: 1px solid #ddd;
+  }
+  #status-info { flex: 1; min-width: 0; }
+
+  #mode-buttons { display: flex; gap: 6px; margin-bottom: 8px; }
+  .mode-btn {
+    flex: 1;
+    padding: 8px 4px;
+    font-size: 14px;
+    background: #fff;
+    border: 2px solid #bbb;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .mode-btn.active { background: #333; border-color: #333; color: #fff; }
+
+  #selected-text { margin: 0 0 6px; font-size: 13px; line-height: 1.5; }
+  #hint { margin: 0 0 6px; min-height: 1.2em; font-size: 12px; color: #c62828; }
+  #button-row { display: flex; gap: 6px; }
+  #show-result {
+    flex: 1;
+    padding: 10px;
+    font-size: 15px;
+    color: #fff;
+    background: #2e7d32;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #show-result:disabled { background: #bbb; cursor: not-allowed; }
+  #clear-button {
+    padding: 10px 12px;
+    font-size: 13px;
+    background: #fff;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  /* ---------- カテゴリごとの選択肢 ----------
+     --cat-color は「カテゴリの色」を入れておくための変数。
+     見出しの線とボタンの左線に同じ色を使う */
+  .category { margin-top: 18px; }
+  .category h2 {
+    margin: 0 0 8px;
+    padding-left: 8px;
+    font-size: 15px;
+    border-left: 8px solid var(--cat-color);
+  }
+  .options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+  .option-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    font-size: 15px;
+    text-align: left;
+    background: #fff;
+    border: 2px solid #ddd;
+    border-left: 8px solid var(--cat-color);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .option-btn .thumb { display: block; width: 32px; height: 32px; flex-shrink: 0; }
+  .option-btn .thumb svg { width: 100%; height: 100%; }
+  .option-btn .badge {
+    margin-left: auto;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: #fff;
+    border-radius: 10px;
+  }
+  .badge:empty { display: none; }          /* 中身が空のバッジは表示しない */
+  .badge.main-badge { background: #f9a825; }
+  .badge.sub-badge  { background: #1e88e5; }
+  .option-btn.is-main { border-color: #f9a825; border-left-color: var(--cat-color); background: #fff8e1; }
+  .option-btn.is-sub  { border-color: #1e88e5; border-left-color: var(--cat-color); background: #eef5ff; }
+  .option-btn.is-disabled { opacity: 0.4; }
+
+  /* ---------- 結果画面 ---------- */
+  #result-name { text-align: center; font-size: 18px; margin: 20px 0 0; }
+  #result-art { width: 100%; max-width: 400px; margin: 8px auto; }
+  #result-art svg { width: 100%; height: auto; }
+  #rarity { text-align: center; color: #888; }
+  #retry {
+    display: block;
+    margin: 24px auto 0;
+    padding: 10px 24px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+</style>
+</head>
+
+<!-- ===== 画面の骨組み（HTML） ===== -->
+<body>
+<main>
+
+  <!-- 画面1：質問と選択肢（メインもサブも、この1画面の中で選ぶ） -->
+  <section id="question-screen">
+    <h1 id="question-text"></h1>
+
+    <!-- 上に張りつくバー：モード切り替え、いまの選択、結果ボタン -->
+    <div id="status-bar">
+      <div id="status-info">
+        <div id="mode-buttons">
+          <button type="button" class="mode-btn" id="mode-main">メインを選ぶ</button>
+          <button type="button" class="mode-btn" id="mode-sub">サブを選ぶ</button>
+        </div>
+        <p id="selected-text"></p>
+        <p id="hint"></p>
+        <div id="button-row">
+          <button type="button" id="show-result">結果を見る</button>
+          <button type="button" id="clear-button">クリア</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 選択肢のボタンがカテゴリごとに並ぶ場所（JavaScriptが自動で作る） -->
+    <div id="options"></div>
+  </section>
+
+  <!-- 画面2：結果（最初は hidden で隠しておく） -->
+  <section id="result-screen" hidden>
+    <h2 id="result-name"></h2>
+    <div id="result-art"></div>
+    <p id="rarity">（ここに「全体の何%か」を表示する予定）</p>
+    <button type="button" id="retry">選び直す</button>
+  </section>
+
+</main>
+
+<!-- ===== 動きの設定（JavaScript） ===== -->
+<script>
+// ------------------------------------------------------------
+// 1. データ部分：ここを書き換えれば、質問・選択肢・ルールを変えられます
+// ------------------------------------------------------------
+
+// 質問文
+const QUESTION = "いまのあなたに一番しっくりくるのは？";
+
+// サブとして選べる数の下限と上限。
+// MAX_SUB を 3 にすれば「1〜3個まで自由に選べる」、2 にすれば「1〜2個」になります。
+const MIN_SUB = 1;
+const MAX_SUB = 3;
+
+// カテゴリの一覧（表示される順番もこの順）。
+//   label : 見出しの文字
+//   color : そのカテゴリの色（ボタンの左線と見出しの線に使う）
+// カテゴリを増やしたいときは、1行コピーして書き換えるだけです。
+const CATEGORIES = {
+  A: { label: "Aカテゴリ", color: "#e53935" },   // 赤
+  B: { label: "Bカテゴリ", color: "#1e88e5" },   // 青
+  C: { label: "Cカテゴリ", color: "#43a047" },   // 緑
+  D: { label: "Dカテゴリ", color: "#fb8c00" },   // オレンジ
+};
+
+// 選択肢のリスト。1行が1つの選択肢です。
+//   name     : ボタンに表示する名前
+//   category : 上のCATEGORIESのどれに入れるか（A〜D）
+//   color    : 図形の色（#から始まる色コード）。カテゴリの色とは別物です
+//   shape    : 図形の種類
+//              circle(丸) square(四角) triangle(三角) diamond(ひし形)
+//              star(星) hexagon(六角形) ring(輪) flower(花)
+// ※ カテゴリの振り分けは仮のものです。
+const OPTIONS = [
+  { name: "朝焼け",   category: "A", color: "#ff8a65", shape: "circle"   },
+  { name: "炎",       category: "A", color: "#e53935", shape: "triangle" },
+  { name: "ざくろ",   category: "A", color: "#ad1457", shape: "star"     },
+  { name: "桜",       category: "A", color: "#f48fb1", shape: "flower"   },
+  { name: "ひまわり", category: "A", color: "#ffb300", shape: "flower"   },
+
+  { name: "深い海",   category: "B", color: "#1565c0", shape: "hexagon"  },
+  { name: "夜空",     category: "B", color: "#283593", shape: "star"     },
+  { name: "ラムネ",   category: "B", color: "#4fc3f7", shape: "ring"     },
+  { name: "オーロラ", category: "B", color: "#00acc1", shape: "star"     },
+  { name: "雪",       category: "B", color: "#90a4ae", shape: "hexagon"  },
+
+  { name: "新緑",     category: "C", color: "#43a047", shape: "flower"   },
+  { name: "森",       category: "C", color: "#2e7d32", shape: "diamond"  },
+  { name: "ミント",   category: "C", color: "#26a69a", shape: "ring"     },
+  { name: "レモン",   category: "C", color: "#fbc02d", shape: "ring"     },
+  { name: "ぶどう",   category: "C", color: "#7b1fa2", shape: "circle"   },
+
+  { name: "砂漠",     category: "D", color: "#d4a24c", shape: "triangle" },
+  { name: "夕暮れ",   category: "D", color: "#ab47bc", shape: "diamond"  },
+  { name: "チョコ",   category: "D", color: "#6d4c41", shape: "square"   },
+  { name: "月",       category: "D", color: "#cfd8dc", shape: "circle"   },
+  { name: "霧",       category: "D", color: "#78909c", shape: "square"   },
+];
+
+// ------------------------------------------------------------
+// 2. 図形を描く部分（前回と同じ）
+//    SVG という「文字で書く絵」の仕組みを使います
+// ------------------------------------------------------------
+
+// 正多角形の頂点の座標を作る関数
+//   n: 角の数 / r: 中心から角までの距離 / rot: 回転（ラジアン）
+function polygonPoints(n, r, rot) {
+  const points = [];
+  for (let i = 0; i < n; i++) {
+    const angle = rot + (i * 2 * Math.PI) / n;
+    const x = 100 + r * Math.cos(angle);   // 100,100 が絵の中心
+    const y = 100 + r * Math.sin(angle);
+    points.push(x.toFixed(1) + "," + y.toFixed(1));
+  }
+  return points.join(" ");
+}
+
+// 星の頂点の座標を作る関数（外側の点と内側の点を交互に並べる）
+function starPoints(r) {
+  const points = [];
+  for (let i = 0; i < 10; i++) {
+    const radius = (i % 2 === 0) ? r : r * 0.45;
+    const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+    const x = 100 + radius * Math.cos(angle);
+    const y = 100 + radius * Math.sin(angle);
+    points.push(x.toFixed(1) + "," + y.toFixed(1));
+  }
+  return points.join(" ");
+}
+
+// 図形1個分のSVGの文字列を返す関数
+//   shape: 図形の種類 / color: 色 / r: 大きさ / opacity: 透明度(0〜1)
+function shapeSVG(shape, color, r, opacity) {
+  const common = 'fill="' + color + '" fill-opacity="' + opacity + '"';
+
+  if (shape === "circle") {
+    return '<circle cx="100" cy="100" r="' + r + '" ' + common + '/>';
+  }
+  if (shape === "square") {
+    return '<rect x="' + (100 - r) + '" y="' + (100 - r) + '" width="' + (r * 2) +
+           '" height="' + (r * 2) + '" rx="6" ' + common + '/>';
+  }
+  if (shape === "triangle") {
+    return '<polygon points="' + polygonPoints(3, r, -Math.PI / 2) + '" ' + common + '/>';
+  }
+  if (shape === "diamond") {
+    return '<polygon points="' + polygonPoints(4, r, -Math.PI / 2) + '" ' + common + '/>';
+  }
+  if (shape === "hexagon") {
+    return '<polygon points="' + polygonPoints(6, r, 0) + '" ' + common + '/>';
+  }
+  if (shape === "star") {
+    return '<polygon points="' + starPoints(r) + '" ' + common + '/>';
+  }
+  if (shape === "ring") {
+    return '<circle cx="100" cy="100" r="' + (r * 0.8) + '" fill="none" stroke="' + color +
+           '" stroke-opacity="' + opacity + '" stroke-width="' + (r * 0.3) + '"/>';
+  }
+  if (shape === "flower") {
+    let petals = "";
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * 2 * Math.PI) / 6;
+      const x = 100 + r * 0.55 * Math.cos(angle);
+      const y = 100 + r * 0.55 * Math.sin(angle);
+      petals += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) +
+                '" r="' + (r * 0.45) + '" ' + common + '/>';
+    }
+    return petals + '<circle cx="100" cy="100" r="' + (r * 0.3) + '" fill="#fff" fill-opacity="0.7"/>';
+  }
+  return ""; // 知らない種類のときは何も描かない
+}
+
+// 選択肢1つ分の「絵の中身」（200×200の枠の中に描いたもの）を返す関数
+function figureInner(option) {
+  // 後ろに大きく薄い図形、前に濃い図形を重ねて、少し奥行きを出す
+  const back  = shapeSVG(option.shape, option.color, 92, 0.2);
+  const front = shapeSVG(option.shape, option.color, 62, 0.95);
+  return back + front;
+}
+
+// 選択肢1つ分の絵を、単独のSVGとして返す関数（ボタンの小さな見本に使う）
+function makeArt(option) {
+  return '<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">' + figureInner(option) + '</svg>';
+}
+
+// ------------------------------------------------------------
+// 3. 「恒星と衛星」を描く部分【今回の新しい部分】
+//    メインを中央に大きく、サブを小さくして、まわりの軌道にのせます。
+//    使う絵は選択肢ごとに1つだけ。大きさと位置を変えて描き分けています。
+// ------------------------------------------------------------
+
+const ORBIT_START = 140;   // いちばん内側の軌道の半径
+const ORBIT_STEP  = 25;    // 軌道どうしの間隔
+const MAIN_SCALE  = 1.1;   // メインの大きさ（1.0 が元の大きさ）
+const SUB_SCALE   = 0.32;  // サブの大きさ
+
+// 全体の枠の大きさ。サブが最大数のときにちょうど収まるよう計算します。
+// （MAX_SUB を変えても、枠の大きさが自動で変わるので、メインの大きさが
+//   選ぶたびにぶれることがありません）
+const HALF = ORBIT_START + ORBIT_STEP * (MAX_SUB - 1) + 32;
+const VIEW_SIZE = HALF * 2;
+
+// 指定の位置(cx, cy)に、指定の大きさ(scale)で絵を置く関数
+//   <g> は「グループ」。中の絵をまとめて移動・拡大縮小できます
+function placeFigure(option, cx, cy, scale) {
+  return '<g transform="translate(' + cx.toFixed(1) + ',' + cy.toFixed(1) +
+         ') scale(' + scale + ') translate(-100,-100)">' + figureInner(option) + '</g>';
+}
+
+// 恒星（メイン）と衛星（サブたち）を描いたSVGを返す関数
+//   mainOption: メインの選択肢 / subOptions: サブの選択肢の配列
+function makeSystem(mainOption, subOptions) {
+  let svg = '<svg viewBox="0 0 ' + VIEW_SIZE + ' ' + VIEW_SIZE +
+            '" xmlns="http://www.w3.org/2000/svg">';
+
+  // 軌道の線（うすい点線の円）
+  subOptions.forEach(function (sub, i) {
+    const orbit = ORBIT_START + ORBIT_STEP * i;
+    svg += '<circle cx="' + HALF + '" cy="' + HALF + '" r="' + orbit +
+           '" fill="none" stroke="#999" stroke-opacity="0.35" stroke-dasharray="4 6"/>';
+  });
+
+  // 中央にメイン（恒星）
+  svg += placeFigure(mainOption, HALF, HALF, MAIN_SCALE);
+
+  // まわりにサブ（衛星）。1つずつ別の軌道にのせて、ゆっくり回す
+  subOptions.forEach(function (sub, i) {
+    const orbit = ORBIT_START + ORBIT_STEP * i;
+    const angle = -Math.PI / 4 + (i * 2 * Math.PI) / MAX_SUB;   // 最初の位置（角度）
+    const x = HALF + orbit * Math.cos(angle);
+    const y = HALF + orbit * Math.sin(angle);
+
+    const duration = 12 + i * 8;                       // 1周にかかる秒数（外側ほどゆっくり）
+    const from = (i % 2 === 0) ? 0 : 360;              // 回る向きを交互にする
+    const to   = (i % 2 === 0) ? 360 : 0;
+
+    // animateTransform は「中心のまわりを回し続ける」指示です
+    svg += '<g><animateTransform attributeName="transform" type="rotate" from="' +
+           from + ' ' + HALF + ' ' + HALF + '" to="' + to + ' ' + HALF + ' ' + HALF +
+           '" dur="' + duration + 's" repeatCount="indefinite"/>' +
+           placeFigure(sub, x, y, SUB_SCALE) + '</g>';
+  });
+
+  return svg + '</svg>';
+}
+
+// ------------------------------------------------------------
+// 4. 画面を動かす部分
+// ------------------------------------------------------------
+
+// HTMLの中の部品を、idで探して変数に入れておく
+const questionScreen = document.getElementById("question-screen");
+const resultScreen   = document.getElementById("result-screen");
+const questionText   = document.getElementById("question-text");
+const optionsBox     = document.getElementById("options");
+const modeMainButton = document.getElementById("mode-main");
+const modeSubButton  = document.getElementById("mode-sub");
+const selectedText   = document.getElementById("selected-text");
+const hintText       = document.getElementById("hint");
+const showResultBtn  = document.getElementById("show-result");
+const clearButton    = document.getElementById("clear-button");
+const resultName     = document.getElementById("result-name");
+const resultArt      = document.getElementById("result-art");
+const retryButton    = document.getElementById("retry");
+
+// いまの状態を覚えておく変数
+let mainIndex = null;     // メインに選んだ選択肢の番号（まだなら null）
+let subIndexes = [];      // サブに選んだ選択肢の番号の一覧
+let mode = "main";        // いま「メインを選ぶ」か「サブを選ぶ」か
+
+// 質問文を表示
+questionText.textContent = QUESTION;
+
+// 選択肢のボタンを、カテゴリごとにまとめて自動で作る
+const optionButtons = [];   // 作ったボタンを番号順にしまっておく（あとで見た目を変えるため）
+
+Object.keys(CATEGORIES).forEach(function (categoryKey) {
+  const category = CATEGORIES[categoryKey];
+
+  // カテゴリ1つ分の入れ物（見出し＋ボタンの並び）
+  const section = document.createElement("section");
+  section.className = "category";
+  section.style.setProperty("--cat-color", category.color);
+
+  const heading = document.createElement("h2");
+  heading.textContent = category.label;
+
+  const grid = document.createElement("div");
+  grid.className = "options-grid";
+
+  OPTIONS.forEach(function (option, index) {
+    if (option.category !== categoryKey) return;   // このカテゴリ以外はとばす
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "option-btn";
+
+    const thumb = document.createElement("span");   // 小さな図形の見本
+    thumb.className = "thumb";
+    thumb.innerHTML = makeArt(option);
+
+    const label = document.createElement("span");   // 名前
+    label.textContent = option.name;
+
+    const badge = document.createElement("span");   // 「メイン」「サブ」の札
+    badge.className = "badge";
+
+    button.appendChild(thumb);
+    button.appendChild(label);
+    button.appendChild(badge);
+
+    // ボタンが押されたときの動き
+    button.addEventListener("click", function () {
+      onOptionClick(index);
+    });
+
+    optionButtons[index] = { button: button, badge: badge };
+    grid.appendChild(button);
+  });
+
+  section.appendChild(heading);
+  section.appendChild(grid);
+  optionsBox.appendChild(section);
+});
+
+// 選択肢が押されたときの処理
+function onOptionClick(index) {
+  hintText.textContent = "";   // 前の案内文を消す
+
+  if (mode === "main") {
+    if (index === mainIndex) {
+      mainIndex = null;                       // もう一度押したらメインを外す
+    } else {
+      mainIndex = index;
+      // サブに入っていたものをメインにしたら、サブからは外す
+      subIndexes = subIndexes.filter(function (i) { return i !== index; });
+      mode = "sub";                           // メインを選んだら、次はサブを選ぶモードへ
+    }
+  } else {
+    if (index === mainIndex) {
+      hintText.textContent = "メインに選んだものはサブにできません";
+    } else if (subIndexes.indexOf(index) !== -1) {
+      // すでにサブなら、外す
+      subIndexes = subIndexes.filter(function (i) { return i !== index; });
+    } else if (subIndexes.length >= MAX_SUB) {
+      hintText.textContent = "サブは " + MAX_SUB + " つまでです。外したいものを押してください";
+    } else {
+      subIndexes.push(index);
+    }
+  }
+  updateUI();
+}
+
+// 画面の見た目を、いまの状態に合わせて更新する関数
+function updateUI() {
+  const subIsFull = subIndexes.length >= MAX_SUB;
+
+  // 各ボタンの見た目（メイン・サブの色と札、選べないときはうすく）
+  optionButtons.forEach(function (item, index) {
+    const isMain = (index === mainIndex);
+    const isSub  = (subIndexes.indexOf(index) !== -1);
+
+    item.button.classList.toggle("is-main", isMain);
+    item.button.classList.toggle("is-sub", isSub);
+    item.button.classList.toggle("is-disabled", mode === "sub" && subIsFull && !isSub && !isMain);
+
+    item.badge.textContent = isMain ? "メイン" : (isSub ? "サブ" : "");
+    item.badge.className = "badge" + (isMain ? " main-badge" : "") + (isSub ? " sub-badge" : "");
+  });
+
+  // モード切り替えボタン
+  modeMainButton.classList.toggle("active", mode === "main");
+  modeSubButton.classList.toggle("active", mode === "sub");
+
+  // 「いまの選択」の文字
+  const mainName = (mainIndex === null) ? "未選択" : OPTIONS[mainIndex].name;
+  const subNames = subIndexes.map(function (i) { return OPTIONS[i].name; });
+  selectedText.textContent = "メイン：" + mainName +
+    "\nサブ（" + subIndexes.length + "/" + MAX_SUB + "）：" +
+    (subNames.length === 0 ? "未選択" : subNames.join("・"));
+  selectedText.style.whiteSpace = "pre-line";   // 文字の中の改行を、そのまま改行として表示
+
+  // 「結果を見る」は、メインが決まっていて、サブが最低数以上のときだけ押せる
+  showResultBtn.disabled = !(mainIndex !== null && subIndexes.length >= MIN_SUB);
+}
+
+// モード切り替えボタン
+modeMainButton.addEventListener("click", function () { mode = "main"; hintText.textContent = ""; updateUI(); });
+modeSubButton.addEventListener("click",  function () { mode = "sub";  hintText.textContent = ""; updateUI(); });
+
+// クリアボタン：選択を全部リセット
+clearButton.addEventListener("click", function () {
+  mainIndex = null;
+  subIndexes = [];
+  mode = "main";
+  hintText.textContent = "";
+  updateUI();
+});
+
+// 結果を見るボタン
+showResultBtn.addEventListener("click", function () {
+  const mainOption = OPTIONS[mainIndex];
+  const subOptions = subIndexes.map(function (i) { return OPTIONS[i]; });
+
+  resultName.textContent = "メイン：" + mainOption.name + " ／ サブ：" +
+    subOptions.map(function (o) { return o.name; }).join("・");
+  resultArt.innerHTML = makeSystem(mainOption, subOptions);
+
+  questionScreen.hidden = true;    // 質問画面を隠す
+  resultScreen.hidden = false;     // 結果画面を出す
+  window.scrollTo(0, 0);
+});
+
+// 「選び直す」が押されたら、選択をそのままにして質問画面に戻す
+retryButton.addEventListener("click", function () {
+  resultScreen.hidden = true;
+  questionScreen.hidden = false;
+});
+
+// 最初の表示
+updateUI();
+</script>
+</body>
+</html>
